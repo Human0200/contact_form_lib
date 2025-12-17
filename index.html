@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <!-- Подключаем библиотеку -->
+    <script src="contact-form.js"></script>
+    <!-- Опционально стили -->
+    <!-- <link rel="stylesheet" href="contact-form.css"> -->
+</head>
+
+<body>
+    <h1>Мое приложение</h1>
+
+    <script>
+        // Библиотека автоматически инициализируется
+        // Форма покажется если еще не заполнена
+        // Настройки опциональны
+        ContactForm.config.theme = 'light'; // 'light' или 'dark'
+        ContactForm.config.userId = 1;
+
+        // Подписка на события
+        window.addEventListener('contactForm:formSaved', function (e) {
+            console.log('Данные сохранены:', e.detail);
+            // Запускаем ваше приложение
+        });
+    </script>
+</body>
+
+</html>
