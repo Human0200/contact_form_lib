@@ -4,9 +4,9 @@
 
 ## 📦 Установка
 
-### Вариант 1: Подключение через CDN (скоро)
+### Вариант 1: Подключение через CDN
 ```html
-<script src="https://cdn.jsdelivr.net/npm/contact-form-library@latest/dist/contact-form.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/Human0200/contact_form_lib@main/contact-form.min.js"></script>
 ```
 
 ### Вариант 2: Локальное подключение
