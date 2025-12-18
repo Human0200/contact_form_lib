@@ -741,19 +741,36 @@ class ContactFormLibrary {
                 return;
             }
 
-            BX24.callMethod('user.get', { ID: userId }, (result) => {
-                if (result.error()) {
-                    this.log('Ошибка получения данных:', result.error());
-                    resolve(null);
-                } else {
-                    const user = result.data();
-                    resolve({
-                        name: user.NAME + ' ' + user.LAST_NAME,
-                        phone: user.PERSONAL_PHONE || user.WORK_PHONE || '',
-                        email: user.EMAIL || user.WORK_EMAIL || ''
-                    });
+
+            BX24.callMethod(
+                "user.get",
+                {
+                    filter: {
+                        ID: userId
+                    }
+                },
+                function (result) {
+                    if (result.error()) {
+                        console.error('Ошибка получения данных пользователя:', result.error());
+                        resolve(null);
+                    } else {
+                        const users = result.data();
+
+
+                        if (Array.isArray(users) && users.length > 0) {
+                            const user = users[0];
+                            resolve({
+                                name: (user.NAME || '') + ' ' + (user.LAST_NAME || ''),
+                                phone: user.PERSONAL_PHONE || user.WORK_PHONE || '',
+                                email: user.EMAIL || user.WORK_EMAIL || ''
+                            });
+                        } else {
+                            console.log('Пользователь с ID ' + userId + ' не найден');
+                            resolve(null);
+                        }
+                    }
                 }
-            });
+            );
         });
     }
 
