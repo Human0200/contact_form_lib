@@ -1,57 +1,72 @@
-
 class ContactFormLibrary {
     constructor(options = {}) {
-        
         this.config = {
             formKey: 'user_contact_data',
             userId: 1,
             autoShow: true,
             debug: false,
-            theme: 'light', 
+            theme: 'light',
             animation: true,
+            // Новые параметры для отправки на сервер
+            apiEndpoint: options.apiEndpoint || null,
+            apiMethod: options.apiMethod || 'POST',
+            apiHeaders: options.apiHeaders || {
+                'Content-Type': 'application/json',
+            },
+            apiCredentials: options.apiCredentials || 'same-origin',
+            // Колбэки для обработки событий
+            onBeforeSend: options.onBeforeSend || null,
+            onSuccess: options.onSuccess || null,
+            onError: options.onError || null,
+            onComplete: options.onComplete || null,
+            // Валидация
+            validatePhone: options.validatePhone || false,
+            validateEmail: options.validateEmail || true,
+            // Дополнительные данные
+            extraData: options.extraData || {},
+            // Автосохранение в localStorage
+            autoSaveToLocal: options.autoSaveToLocal !== false,
+            // Таймаут запроса
+            requestTimeout: options.requestTimeout || 30000,
             ...options
         };
-        
+
         this.initialized = false;
         this.formShown = false;
+        this.isSubmitting = false;
+        this.offlineMode = false;
     }
 
-    
     async init() {
         if (this.initialized) return this;
-        
+
         this.log('Инициализация библиотеки...');
-        
-        
         this.createFormHTML();
-        
-        
+
         if (document.readyState !== 'loading') {
             await this.setupForm();
         } else {
             document.addEventListener('DOMContentLoaded', () => this.setupForm());
         }
-        
+
         this.initialized = true;
         this.log('Библиотека инициализирована');
         return this;
     }
 
-    
     log(...args) {
         if (this.config.debug) {
             console.log('[ContactForm]', ...args);
         }
     }
 
-    
     createFormHTML() {
         const isDark = this.config.theme === 'dark';
         const bgColor = isDark ? '#1a1a2e' : 'white';
         const textColor = isDark ? '#ffffff' : '#333333';
         const borderColor = isDark ? '#2d3748' : '#e0e0e0';
         const cardBg = isDark ? '#16213e' : 'white';
-        
+
         const formHTML = `
             <div id="contactFormOverlay" class="contact-form-overlay" style="display: none;">
                 <div class="contact-form-container">
@@ -73,6 +88,7 @@ class ContactFormLibrary {
                             <div class="input-wrapper">
                                 <input type="text" id="userName" placeholder="Введите ваше имя" required>
                                 <div class="input-border"></div>
+                                <div class="error-message"></div>
                             </div>
                         </div>
                         
@@ -84,6 +100,7 @@ class ContactFormLibrary {
                             <div class="input-wrapper">
                                 <input type="tel" id="userPhone" placeholder="+7 (999) 123-45-67" required>
                                 <div class="input-border"></div>
+                                <div class="error-message"></div>
                             </div>
                         </div>
                         
@@ -95,6 +112,7 @@ class ContactFormLibrary {
                             <div class="input-wrapper">
                                 <input type="email" id="userEmail" placeholder="example@domain.com" required>
                                 <div class="input-border"></div>
+                                <div class="error-message"></div>
                             </div>
                         </div>
                         
@@ -121,24 +139,35 @@ class ContactFormLibrary {
                                 <label class="contact-method">
                                     <input type="checkbox" name="contact_method" value="whatsapp">
                                     <div class="method-content">
-                                        <span class="method-icon"><img src="icons/whatsapp.png"></span>
+                                        <span class="method-icon"><img src="icons/whatsapp.png" alt="WhatsApp"></span>
                                         <span class="method-text">WhatsApp</span>
                                     </div>
                                 </label>
                                 <label class="contact-method">
                                     <input type="checkbox" name="contact_method" value="telegram">
                                     <div class="method-content">
-                                        <span class="method-icon"><img src="icons/telegram.png"></span>
+                                        <span class="method-icon"><img src="icons/telegram.png" alt="Telegram"></span>
                                         <span class="method-text">Telegram</span>
                                     </div>
                                 </label>
                                 <label class="contact-method">
                                     <input type="checkbox" name="contact_method" value="viber">
                                     <div class="method-content">
-                                        <span class="method-icon"><img src="icons/viber.png"></span>
+                                        <span class="method-icon"><img src="icons/viber.png" alt="Viber"></span>
                                         <span class="method-text">Viber</span>
                                     </div>
                                 </label>
+                            </div>
+                            <div class="error-message contact-methods-error"></div>
+                        </div>
+                        
+                        <div class="form-footer">
+                            <div class="privacy-notice">
+                                <input type="checkbox" id="privacyAgreement" required>
+                                <label for="privacyAgreement">
+                                    Я согласен на обработку персональных данных
+                                </label>
+                                <div class="error-message"></div>
                             </div>
                         </div>
                         
@@ -151,6 +180,13 @@ class ContactFormLibrary {
                                 <span class="btn-text">Отправить</span>
                                 <span class="btn-icon">→</span>
                             </button>
+                        </div>
+                        
+                        <div class="form-status">
+                            <div class="offline-indicator" style="display: none;">
+                                <span class="offline-icon">📶</span>
+                                <span class="offline-text">Работаем в офлайн-режиме</span>
+                            </div>
                         </div>
                     </form>
                 </div>
@@ -185,6 +221,21 @@ class ContactFormLibrary {
                     100% { background-position: 200% center; }
                 }
                 
+                @keyframes shake {
+                    0%, 100% { transform: translateX(0); }
+                    10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+                    20%, 40%, 60%, 80% { transform: translateX(5px); }
+                }
+                
+                @keyframes spin {
+                    to { transform: rotate(360deg); }
+                }
+                
+                @keyframes slideDown {
+                    from { transform: translateY(-20px); opacity: 0; }
+                    to { transform: translateY(0); opacity: 1; }
+                }
+                
                 /* Основные стили */
                 .contact-form-overlay {
                     position: fixed;
@@ -211,6 +262,7 @@ class ContactFormLibrary {
                     border: 1px solid ${borderColor};
                     animation: slideUp 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
                     transform-origin: center;
+                    max-height: 900px;
                 }
                 
                 /* Шапка формы */
@@ -302,8 +354,8 @@ class ContactFormLibrary {
                     border-radius: 12px;
                     font-size: 16px;
                     color: ${textColor};
-                    text-indent: 10px;
                     transition: all 0.3s ease;
+                    text-indent: 10px;
                 }
                 
                 .input-wrapper input:focus {
@@ -314,7 +366,12 @@ class ContactFormLibrary {
                 
                 .input-wrapper input::placeholder {
                     color: ${isDark ? '#718096' : '#a0aec0'};
-                    
+                }
+                
+                .input-wrapper input.validation-error {
+                    border-color: #f56565;
+                    background-color: ${isDark ? 'rgba(245, 101, 101, 0.1)' : 'rgba(245, 101, 101, 0.05)'};
+                    animation: shake 0.5s ease-in-out;
                 }
                 
                 .input-border {
@@ -330,6 +387,18 @@ class ContactFormLibrary {
                 
                 .input-wrapper input:focus ~ .input-border {
                     width: 100%;
+                }
+                
+                .error-message {
+                    color: #f56565;
+                    font-size: 12px;
+                    margin-top: 5px;
+                    min-height: 18px;
+                    animation: fadeIn 0.3s ease;
+                }
+                
+                .contact-methods-error {
+                    margin-top: 10px;
                 }
                 
                 /* Способы связи */
@@ -384,18 +453,43 @@ class ContactFormLibrary {
                 .contact-method input:checked + .method-content {
                     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                     border-color: transparent;
-                    color: white;
                 }
                 
                 .contact-method input:checked + .method-content .method-text {
                     color: white;
                 }
                 
+                /* Согласие на обработку данных */
+                .form-footer {
+                    margin: 25px 0;
+                    padding: 15px;
+                    background: ${isDark ? 'rgba(45, 55, 72, 0.3)' : 'rgba(247, 250, 252, 0.5)'};
+                    border-radius: 10px;
+                    border: 1px solid ${borderColor};
+                }
+                
+                .privacy-notice {
+                    display: flex;
+                    align-items: flex-start;
+                    gap: 10px;
+                }
+                
+                .privacy-notice input {
+                    margin-top: 3px;
+                }
+                
+                .privacy-notice label {
+                    font-size: 14px;
+                    color: ${textColor};
+                    line-height: 1.4;
+                    cursor: pointer;
+                }
+                
                 /* Кнопки */
                 .form-actions {
                     display: flex;
                     gap: 15px;
-                    margin-top: 40px;
+                    margin-top: 30px;
                 }
                 
                 .cancel-form, .submit-form {
@@ -479,6 +573,49 @@ class ContactFormLibrary {
                     transform: translateX(3px);
                 }
                 
+                /* Статус формы */
+                .form-status {
+                    margin-top: 20px;
+                    text-align: center;
+                }
+                
+                .offline-indicator {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 8px 16px;
+                    background: ${isDark ? 'rgba(237, 137, 54, 0.2)' : 'rgba(237, 137, 54, 0.1)'};
+                    border: 1px solid ${isDark ? '#ed8936' : '#dd6b20'};
+                    border-radius: 8px;
+                    color: ${isDark ? '#ed8936' : '#c05621'};
+                    font-size: 14px;
+                    animation: slideDown 0.3s ease;
+                }
+                
+                .offline-icon {
+                    font-size: 16px;
+                }
+                
+                /* Анимация для отправки */
+                .submit-loading {
+                    position: relative;
+                }
+                
+                .submit-loading .btn-text {
+                    opacity: 0;
+                }
+                
+                .submit-loading::after {
+                    content: '';
+                    position: absolute;
+                    width: 20px;
+                    height: 20px;
+                    border: 2px solid rgba(255, 255, 255, 0.3);
+                    border-top-color: white;
+                    border-radius: 50%;
+                    animation: spin 1s linear infinite;
+                }
+                
                 /* Адаптивность */
                 @media (max-width: 480px) {
                     .contact-form-container {
@@ -514,63 +651,37 @@ class ContactFormLibrary {
                     }
                     
                     .input-wrapper input {
-                        padding: 14px 16px;
+                        padding: 14px 12px;
                     }
-                }
-                
-                /* Анимация для отправки */
-                .submit-loading {
-                    position: relative;
-                }
-                
-                .submit-loading .btn-text {
-                    opacity: 0;
-                }
-                
-                .submit-loading::after {
-                    content: '';
-                    position: absolute;
-                    width: 20px;
-                    height: 20px;
-                    border: 2px solid rgba(255, 255, 255, 0.3);
-                    border-top-color: white;
-                    border-radius: 50%;
-                    animation: spin 1s linear infinite;
-                }
-                
-                @keyframes spin {
-                    to { transform: rotate(360deg); }
+                    
+                    .privacy-notice label {
+                        font-size: 13px;
+                    }
                 }
             </style>
         `;
-        
+
         document.body.insertAdjacentHTML('beforeend', formHTML);
     }
 
-    
     async setupForm() {
-        
         document.querySelector('.close-form').addEventListener('click', () => this.hide());
         document.querySelector('.cancel-form').addEventListener('click', () => this.hide());
         document.getElementById('contactForm').addEventListener('submit', (e) => this.handleSubmit(e));
-        
-        
+
         this.setupCheckboxAnimation();
-        
-        
         await this.prefillForm();
-        
-        
+        this.setupConnectionCheck();
+
         if (this.config.autoShow) {
             setTimeout(() => this.checkAndShow(), 500);
         }
     }
 
-    
     setupCheckboxAnimation() {
         const checkboxes = document.querySelectorAll('.contact-method input');
         checkboxes.forEach(checkbox => {
-            checkbox.addEventListener('change', function() {
+            checkbox.addEventListener('change', function () {
                 const methodContent = this.parentElement.querySelector('.method-content');
                 if (this.checked) {
                     methodContent.style.transform = 'scale(0.95)';
@@ -582,22 +693,46 @@ class ContactFormLibrary {
         });
     }
 
-    
     async prefillForm() {
         try {
-            
+            // Пробуем загрузить из localStorage
+            const savedData = localStorage.getItem(this.config.formKey);
+            if (savedData) {
+                const data = JSON.parse(savedData);
+                document.getElementById('userName').value = data.name || '';
+                document.getElementById('userPhone').value = data.phone || '';
+                document.getElementById('userEmail').value = data.email || '';
+
+                // Восстанавливаем выбранные способы связи
+                if (data.contact_methods) {
+                    document.querySelectorAll('.contact-method input').forEach(checkbox => {
+                        checkbox.checked = data.contact_methods.includes(checkbox.value);
+                    });
+                }
+
+                if (data.privacyAgreement) {
+                    document.getElementById('privacyAgreement').checked = true;
+                }
+            }
+
+            // Пробуем загрузить из Bitrix24
             const userData = await this.getUserData(this.config.userId);
             if (userData) {
-                document.getElementById('userName').value = userData.name || '';
-                document.getElementById('userPhone').value = userData.phone || '';
-                document.getElementById('userEmail').value = userData.email || '';
+                if (!document.getElementById('userName').value) {
+                    document.getElementById('userName').value = userData.name || '';
+                }
+                if (!document.getElementById('userPhone').value) {
+                    document.getElementById('userPhone').value = userData.phone || '';
+                }
+                if (!document.getElementById('userEmail').value) {
+                    document.getElementById('userEmail').value = userData.email || '';
+                }
             }
         } catch (error) {
             this.log('Не удалось загрузить данные пользователя:', error);
         }
     }
 
-    
     async getUserData(userId) {
         return new Promise((resolve) => {
             if (typeof BX24 === 'undefined') {
@@ -621,7 +756,6 @@ class ContactFormLibrary {
         });
     }
 
-    
     async checkAndShow() {
         const isCompleted = await this.isFormCompleted();
         if (!isCompleted && !this.formShown) {
@@ -629,17 +763,19 @@ class ContactFormLibrary {
         }
     }
 
-    
     async isFormCompleted() {
         try {
-            if (typeof BX24 === 'undefined') return false;
-            
+            if (typeof BX24 === 'undefined') {
+                // Проверяем localStorage
+                return !!localStorage.getItem(this.config.formKey);
+            }
+
             const result = await new Promise((resolve) => {
                 BX24.callMethod('app.option.get', {}, (result) => {
                     resolve(result.error() ? null : result.data());
                 });
             });
-            
+
             return !!(result && result[this.config.formKey]);
         } catch (error) {
             this.log('Ошибка проверки формы:', error);
@@ -647,27 +783,24 @@ class ContactFormLibrary {
         }
     }
 
-    
     show() {
         const overlay = document.getElementById('contactFormOverlay');
         overlay.style.display = 'flex';
-        
+
         if (this.config.animation) {
             overlay.style.animation = 'fadeIn 0.3s ease-out';
             const container = overlay.querySelector('.contact-form-container');
             container.style.animation = 'slideUp 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
         }
-        
+
         this.formShown = true;
         this.log('Форма показана');
-        
-        
+
         setTimeout(() => {
             document.getElementById('userName')?.focus();
         }, 300);
     }
 
-    
     hide() {
         const overlay = document.getElementById('contactFormOverlay');
         if (this.config.animation) {
@@ -681,67 +814,140 @@ class ContactFormLibrary {
         this.log('Форма скрыта');
     }
 
-    
     async handleSubmit(e) {
         e.preventDefault();
-        
+
+        if (this.isSubmitting) {
+            this.log('Форма уже отправляется...');
+            return;
+        }
+
+        this.isSubmitting = true;
         const submitBtn = document.querySelector('.submit-form');
         const btnText = submitBtn.querySelector('.btn-text');
         const originalText = btnText.textContent;
-        
-        
+
         submitBtn.classList.add('submit-loading');
         submitBtn.disabled = true;
-        btnText.textContent = 'Сохранение...';
+        btnText.textContent = 'Отправка...';
 
         try {
+            // Валидация формы
             const formData = this.getFormData();
-            const saved = await this.saveFormData(formData);
-            
-            if (saved) {
-                
-                submitBtn.style.background = 'linear-gradient(135deg, #00b09b 0%, #96c93d 100%)';
-                btnText.textContent = 'Успешно!';
-                
-                setTimeout(() => {
-                    this.showNotification('✅ Контактные данные сохранены!');
-                    this.hide();
-                    
-                    
-                    this.triggerEvent('formSaved', formData);
-                }, 500);
-            } else {
-                this.showNotification('❌ Ошибка сохранения', 'error');
+            if (!this.validateFormData(formData)) {
+                throw new Error('Валидация не пройдена');
             }
+
+            // Проверка согласия на обработку данных
+            if (!document.getElementById('privacyAgreement').checked) {
+                this.showValidationError('privacyAgreement', 'Необходимо согласие на обработку данных');
+                throw new Error('Требуется согласие на обработку данных');
+            }
+
+            // Сохраняем в localStorage
+            if (this.config.autoSaveToLocal) {
+                localStorage.setItem(this.config.formKey, JSON.stringify(formData));
+                this.log('Данные сохранены в localStorage');
+            }
+
+            // Сохраняем в Bitrix24 (если доступно)
+            let bitrixSaved = true;
+            if (typeof BX24 !== 'undefined') {
+                bitrixSaved = await this.saveFormData(formData);
+                if (!bitrixSaved) {
+                    this.log('Не удалось сохранить в Bitrix24');
+                }
+            }
+
+            // Отправляем на сервер (если указан endpoint)
+            let serverResponse = null;
+            if (this.config.apiEndpoint && !this.offlineMode) {
+                try {
+                    serverResponse = await this.sendToServer(formData);
+                    this.log('Данные успешно отправлены на сервер:', serverResponse);
+                } catch (serverError) {
+                    // Если офлайн режим, сохраняем для отправки позже
+                    if (this.offlineMode || !navigator.onLine) {
+                        this.saveForLater(formData);
+                        this.log('Данные сохранены для отправки позже');
+                    } else {
+                        throw serverError;
+                    }
+                }
+            }
+
+            // Успешное завершение
+            submitBtn.style.background = 'linear-gradient(135deg, #00b09b 0%, #96c93d 100%)';
+            btnText.textContent = 'Успешно!';
+
+            setTimeout(() => {
+                const message = this.offlineMode
+                    ? '✅ Данные сохранены (офлайн режим)'
+                    : '✅ Данные успешно отправлены!';
+                this.showNotification(message);
+                this.hide();
+
+                this.triggerEvent('formSaved', formData);
+                if (serverResponse) {
+                    this.triggerEvent('serverResponse', serverResponse);
+                }
+
+                // Очищаем localStorage после успешной отправки
+                if (!this.offlineMode) {
+                    localStorage.removeItem(this.config.formKey);
+                    localStorage.removeItem(`${this.config.formKey}_pending`);
+                }
+            }, 500);
+
         } catch (error) {
             this.log('Ошибка отправки:', error);
-            this.showNotification('❌ Ошибка отправки', 'error');
+
+            let errorMessage = '❌ Ошибка отправки';
+            if (error.message.includes('Валидация')) {
+                errorMessage = '❌ Проверьте правильность заполнения полей';
+            } else if (error.name === 'AbortError') {
+                errorMessage = '⏱️ Превышено время ожидания';
+            } else if (error.message.includes('Требуется согласие')) {
+                errorMessage = '❌ Требуется согласие на обработку данных';
+            }
+
+            this.showNotification(errorMessage, 'error');
+
+            if (typeof this.config.onError === 'function') {
+                this.config.onError(error);
+            }
+
         } finally {
             setTimeout(() => {
                 submitBtn.classList.remove('submit-loading');
                 submitBtn.disabled = false;
                 btnText.textContent = originalText;
                 submitBtn.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+                this.isSubmitting = false;
             }, 1000);
         }
     }
 
-    
     getFormData() {
+        const methods = Array.from(
+            document.querySelectorAll('.contact-method input:checked')
+        ).map(input => input.value);
+
+        const uniqueMethods = [...new Set(methods)];
         return {
-            name: document.getElementById('userName').value,
-            phone: document.getElementById('userPhone').value,
-            email: document.getElementById('userEmail').value,
-            contact_methods: Array.from(
-                document.querySelectorAll('.contact-method input:checked')
-            ).map(input => input.value),
+            name: document.getElementById('userName').value.trim(),
+            phone: document.getElementById('userPhone').value.trim(),
+            email: document.getElementById('userEmail').value.trim(),
+            contact_methods: uniqueMethods,
+            privacyAgreement: document.getElementById('privacyAgreement').checked,
             submitted_at: new Date().toISOString(),
             user_id: this.config.userId,
-            theme: this.config.theme
+            theme: this.config.theme,
+            page_url: window.location.href,
+            user_agent: navigator.userAgent
         };
     }
 
-    
     async saveFormData(data) {
         return new Promise((resolve) => {
             if (typeof BX24 === 'undefined') {
@@ -758,56 +964,274 @@ class ContactFormLibrary {
         });
     }
 
-    
+    async sendToServer(formData) {
+        if (!this.config.apiEndpoint) {
+            this.log('API endpoint не указан. Пропускаем отправку на сервер.');
+            return { success: true, skipped: true };
+        }
+
+        // Подготовка данных
+        const payload = {
+            ...formData,
+            ...this.config.extraData,
+            _metadata: {
+                source: 'contact-form-library',
+                version: '1.0.0',
+                formKey: this.config.formKey,
+                timestamp: new Date().toISOString()
+            }
+        };
+
+        // Колбэк перед отправкой
+        if (typeof this.config.onBeforeSend === 'function') {
+            const modifiedPayload = this.config.onBeforeSend(payload);
+            if (modifiedPayload) {
+                payload = modifiedPayload;
+            }
+        }
+
+        // Создаем контроллер для таймаута
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), this.config.requestTimeout);
+
+        try {
+            this.log('Отправка данных на сервер:', payload);
+
+            const response = await fetch(this.config.apiEndpoint, {
+                method: this.config.apiMethod,
+                headers: this.config.apiHeaders,
+                credentials: this.config.apiCredentials,
+                body: JSON.stringify(payload),
+                signal: controller.signal
+            });
+
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const responseData = await response.json();
+            this.log('Ответ сервера:', responseData);
+
+            // Колбэк при успехе
+            if (typeof this.config.onSuccess === 'function') {
+                this.config.onSuccess(responseData, payload);
+            }
+
+            return {
+                success: true,
+                data: responseData,
+                status: response.status
+            };
+
+        } catch (error) {
+            clearTimeout(timeoutId);
+            this.log('Ошибка отправки на сервер:', error);
+
+            // Колбэк при ошибке
+            if (typeof this.config.onError === 'function') {
+                this.config.onError(error, payload);
+            }
+
+            throw error;
+        } finally {
+            // Колбэк при завершении
+            if (typeof this.config.onComplete === 'function') {
+                this.config.onComplete();
+            }
+        }
+    }
+
+    validateFormData(data) {
+        let isValid = true;
+
+        // Валидация email
+        if (this.config.validateEmail && data.email) {
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(data.email)) {
+                this.showValidationError('userEmail', 'Введите корректный email');
+                isValid = false;
+            }
+        }
+
+        // Валидация телефона
+        if (this.config.validatePhone && data.phone) {
+            const phoneRegex = /^[\+]?[0-9\s\-\(\)]{10,20}$/;
+            const cleanPhone = data.phone.replace(/\s/g, '');
+            if (!phoneRegex.test(cleanPhone)) {
+                this.showValidationError('userPhone', 'Введите корректный номер телефона');
+                isValid = false;
+            }
+        }
+
+        // Проверка обязательных полей
+        const requiredFields = [
+            { id: 'userName', name: 'Имя' },
+            { id: 'userPhone', name: 'Телефон' },
+            { id: 'userEmail', name: 'Email' }
+        ];
+
+        requiredFields.forEach(field => {
+            if (!data[field.id.replace('user', '').toLowerCase()] ||
+                data[field.id.replace('user', '').toLowerCase()].trim() === '') {
+                this.showValidationError(field.id, `Поле "${field.name}" обязательно для заполнения`);
+                isValid = false;
+            }
+        });
+
+        // Проверка способов связи
+        if (!data.contact_methods || data.contact_methods.length === 0) {
+            const errorElement = document.querySelector('.contact-methods-error');
+            if (errorElement) {
+                errorElement.textContent = 'Выберите хотя бы один способ связи';
+            }
+            isValid = false;
+        } else {
+            const errorElement = document.querySelector('.contact-methods-error');
+            if (errorElement) {
+                errorElement.textContent = '';
+            }
+        }
+
+        return isValid;
+    }
+
+    showValidationError(fieldId, message) {
+        const field = document.getElementById(fieldId);
+        if (field) {
+            field.classList.add('validation-error');
+
+            let errorElement = field.parentElement.querySelector('.error-message');
+            if (!errorElement) {
+                errorElement = document.createElement('div');
+                errorElement.className = 'error-message';
+                field.parentElement.appendChild(errorElement);
+            }
+            errorElement.textContent = message;
+
+            field.focus();
+
+            field.addEventListener('input', function onInput() {
+                field.classList.remove('validation-error');
+                if (errorElement) errorElement.textContent = '';
+                field.removeEventListener('input', onInput);
+            }, { once: true });
+        }
+    }
+
+    setupConnectionCheck() {
+        const updateOnlineStatus = () => {
+            this.offlineMode = !navigator.onLine;
+            const offlineIndicator = document.querySelector('.offline-indicator');
+
+            if (this.offlineMode) {
+                if (offlineIndicator) {
+                    offlineIndicator.style.display = 'inline-flex';
+                }
+                this.log('Офлайн режим активирован');
+            } else {
+                if (offlineIndicator) {
+                    offlineIndicator.style.display = 'none';
+                }
+                // Пробуем отправить данные, сохраненные в офлайн режиме
+                this.sendPendingData();
+            }
+        };
+
+        window.addEventListener('online', updateOnlineStatus);
+        window.addEventListener('offline', updateOnlineStatus);
+
+        updateOnlineStatus();
+    }
+
+    saveForLater(data) {
+        const pendingData = JSON.parse(localStorage.getItem(`${this.config.formKey}_pending`) || '[]');
+        pendingData.push({
+            ...data,
+            saved_at: new Date().toISOString(),
+            attempt_count: 0
+        });
+        localStorage.setItem(`${this.config.formKey}_pending`, JSON.stringify(pendingData));
+    }
+
+    async sendPendingData() {
+        const pendingData = JSON.parse(localStorage.getItem(`${this.config.formKey}_pending`) || '[]');
+
+        for (let i = pendingData.length - 1; i >= 0; i--) {
+            const data = pendingData[i];
+            try {
+                await this.sendToServer(data);
+                pendingData.splice(i, 1);
+                this.log('Отправлены данные из офлайн-режима');
+            } catch (error) {
+                data.attempt_count = (data.attempt_count || 0) + 1;
+                if (data.attempt_count >= 3) {
+                    pendingData.splice(i, 1);
+                    this.log('Превышено количество попыток отправки, данные удалены');
+                }
+            }
+        }
+
+        localStorage.setItem(`${this.config.formKey}_pending`, JSON.stringify(pendingData));
+    }
+
     showNotification(message, type = 'success') {
         if (typeof BX24 !== 'undefined' && BX24.showNotify) {
             BX24.showNotify(message, type, 5000);
         } else {
-            
             const notification = document.createElement('div');
+            notification.className = 'form-notification';
             notification.style.cssText = `
                 position: fixed;
                 top: 20px;
                 right: 20px;
                 padding: 15px 25px;
-                background: ${type === 'success' ? '#48bb78' : '#f56565'};
+                background: ${type === 'success' ? '#48bb78' : type === 'warning' ? '#ed8936' : '#f56565'};
                 color: white;
                 border-radius: 10px;
                 box-shadow: 0 10px 25px rgba(0,0,0,0.2);
                 z-index: 10000;
-                animation: slideUp 0.3s ease;
+                animation: slideDown 0.3s ease;
                 font-weight: 500;
+                max-width: 300px;
             `;
             notification.textContent = message;
             document.body.appendChild(notification);
-            
+
             setTimeout(() => {
-                notification.style.animation = 'slideUp 0.3s ease reverse';
+                notification.style.animation = 'slideDown 0.3s ease reverse';
                 setTimeout(() => notification.remove(), 300);
             }, 3000);
         }
     }
 
-    
     triggerEvent(eventName, data) {
         const event = new CustomEvent(`contactForm:${eventName}`, { detail: data });
         window.dispatchEvent(event);
     }
 
-    
     async getSavedData() {
         try {
-            if (typeof BX24 === 'undefined') return null;
-            
-            const result = await new Promise((resolve) => {
-                BX24.callMethod('app.option.get', {}, (result) => {
-                    resolve(result.error() ? null : result.data());
-                });
-            });
-            
-            if (result && result[this.config.formKey]) {
-                return JSON.parse(result[this.config.formKey]);
+            // Пробуем получить из localStorage
+            const localData = localStorage.getItem(this.config.formKey);
+            if (localData) {
+                return JSON.parse(localData);
             }
+
+            // Пробуем получить из Bitrix24
+            if (typeof BX24 !== 'undefined') {
+                const result = await new Promise((resolve) => {
+                    BX24.callMethod('app.option.get', {}, (result) => {
+                        resolve(result.error() ? null : result.data());
+                    });
+                });
+
+                if (result && result[this.config.formKey]) {
+                    return JSON.parse(result[this.config.formKey]);
+                }
+            }
+
             return null;
         } catch (error) {
             this.log('Ошибка получения данных:', error);
@@ -815,24 +1239,27 @@ class ContactFormLibrary {
         }
     }
 
-    
     forceShow() {
         this.show();
     }
 
-    
     async getStatus() {
         const isCompleted = await this.isFormCompleted();
         const savedData = isCompleted ? await this.getSavedData() : null;
-        
+
+        // Проверяем наличие ожидающих отправки данных
+        const pendingData = JSON.parse(localStorage.getItem(`${this.config.formKey}_pending`) || '[]');
+
         return {
             completed: isCompleted,
             data: savedData,
-            shown: this.formShown
+            shown: this.formShown,
+            offline: this.offlineMode,
+            pendingCount: pendingData.length,
+            initialized: this.initialized
         };
     }
-    
-    
+
     setTheme(theme) {
         this.config.theme = theme;
         if (this.initialized) {
@@ -841,18 +1268,135 @@ class ContactFormLibrary {
             this.setupForm();
         }
     }
+
+    // Новые публичные методы
+    async testConnection() {
+        if (!this.config.apiEndpoint) {
+            return { connected: false, error: 'API endpoint не указан' };
+        }
+
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+            const response = await fetch(this.config.apiEndpoint, {
+                method: 'HEAD',
+                signal: controller.signal
+            });
+
+            clearTimeout(timeoutId);
+
+            return {
+                connected: response.ok,
+                status: response.status
+            };
+        } catch (error) {
+            return {
+                connected: false,
+                error: error.message
+            };
+        }
+    }
+
+    exportData(format = 'json') {
+        const savedData = localStorage.getItem(this.config.formKey);
+        if (!savedData) return null;
+
+        const data = JSON.parse(savedData);
+
+        switch (format.toLowerCase()) {
+            case 'csv':
+                return this.convertToCSV(data);
+            case 'xml':
+                return this.convertToXML(data);
+            case 'json':
+            default:
+                return JSON.stringify(data, null, 2);
+        }
+    }
+
+    convertToCSV(data) {
+        const headers = ['Поле', 'Значение'];
+        const rows = Object.entries(data).map(([key, value]) => {
+            if (Array.isArray(value)) {
+                return [key, value.join(', ')];
+            }
+            if (typeof value === 'object' && value !== null) {
+                return [key, JSON.stringify(value)];
+            }
+            return [key, value];
+        });
+
+        return [headers, ...rows]
+            .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+            .join('\n');
+    }
+
+    convertToXML(data) {
+        let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<contact-form>\n';
+
+        for (const [key, value] of Object.entries(data)) {
+            if (Array.isArray(value)) {
+                xml += `  <${key}>\n`;
+                value.forEach(item => {
+                    xml += `    <item>${this.escapeXML(String(item))}</item>\n`;
+                });
+                xml += `  </${key}>\n`;
+            } else if (typeof value === 'object' && value !== null) {
+                xml += `  <${key}>${this.escapeXML(JSON.stringify(value))}</${key}>\n`;
+            } else {
+                xml += `  <${key}>${this.escapeXML(String(value))}</${key}>\n`;
+            }
+        }
+
+        xml += '</contact-form>';
+        return xml;
+    }
+
+    escapeXML(str) {
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&apos;');
+    }
+
+    clearData() {
+        localStorage.removeItem(this.config.formKey);
+        localStorage.removeItem(`${this.config.formKey}_pending`);
+
+        if (typeof BX24 !== 'undefined') {
+            BX24.callMethod('app.option.set', { [this.config.formKey]: '' }, () => {
+                this.log('Данные очищены');
+            });
+        }
+
+        this.triggerEvent('dataCleared');
+    }
+
+    updateConfig(newConfig) {
+        this.config = { ...this.config, ...newConfig };
+        this.log('Конфигурация обновлена:', this.config);
+    }
 }
 
+// Инициализация библиотеки
+if (typeof window !== 'undefined') {
+    window.ContactForm = new ContactFormLibrary();
 
-window.ContactForm = new ContactFormLibrary();
+    if (typeof BX24 !== 'undefined') {
+        BX24.ready(async function () {
+            await window.ContactForm.init();
+        });
+    } else {
+        window.addEventListener('DOMContentLoaded', async function () {
+            await window.ContactForm.init();
+        });
+    }
+}
 
-
-if (typeof BX24 !== 'undefined') {
-    BX24.ready(async function() {
-        await window.ContactForm.init();
-    });
-} else {
-    window.addEventListener('DOMContentLoaded', async function() {
-        await window.ContactForm.init();
-    });
+// Экспорт для использования в модульных системах
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = ContactFormLibrary;
 }

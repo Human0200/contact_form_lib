@@ -12,16 +12,39 @@
     <h1>Мое приложение</h1>
 
     <script>
-        // Библиотека автоматически инициализируется
-        // Форма покажется если еще не заполнена
-        // Настройки опциональны
-        ContactForm.config.theme = 'light'; // 'light' или 'dark'
-        ContactForm.config.userId = 1;
+        const form = new ContactFormLibrary({
+            apiEndpoint: 'http://localhost:8881/TestServer.php',
+            apiHeaders: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer your-token'
+            },
+            validatePhone: true,
+            validateEmail: true,
+            onSuccess: function (response) {
+                console.log('Успешно отправлено:', response);
+                // Интеграция с analytics, CRM и т.д.
+            },
+            onError: function (error) {
+                console.error('Ошибка:', error);
+                // Отправка ошибок в систему мониторинга
+            },
+            debug: true
+        });
 
-        // Подписка на события
-        window.addEventListener('contactForm:formSaved', function (e) {
-            console.log('Данные сохранены:', e.detail);
-            // Запускаем ваше приложение
+        // Инициализация
+        form.init();
+
+        // Ручной показ формы
+        form.forceShow();
+
+        // Получение статуса
+        form.getStatus().then(status => {
+            console.log('Статус формы:', status);
+        });
+
+        // Тестирование соединения
+        form.testConnection().then(connection => {
+            console.log('Соединение с сервером:', connection);
         });
     </script>
 </body>
