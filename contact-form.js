@@ -7,6 +7,7 @@ class ContactFormLibrary {
             debug: false,
             theme: 'light',
             animation: true,
+            autoFillUser: options.autoFillUser || false,
             // Новые параметры для отправки на сервер
             apiEndpoint: options.apiEndpoint || null,
             apiMethod: options.apiMethod || 'POST',
@@ -937,6 +938,7 @@ class ContactFormLibrary {
             }
 
             // Пробуем загрузить из Bitrix24
+            if (this.config.autoFillUser == true){
             const userData = await this.getUserData(this.config.userId);
             if (userData) {
                 if (!document.getElementById('userName').value) {
@@ -949,6 +951,7 @@ class ContactFormLibrary {
                     document.getElementById('userEmail').value = userData.email || '';
                 }
             }
+        }
         } catch (error) {
             this.log('Не удалось загрузить данные пользователя:', error);
         }

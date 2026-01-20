@@ -65,6 +65,7 @@ contactForm.init();
 | **`theme`** | `string` | `'light'` | Тема: `'light'` или `'dark'` |
 | **`animation`** | `boolean` | `true` | Анимации формы |
 | **`autoShow`** | `boolean` | `true` | Автопоказ формы |
+| **`autoFillUser`** | `boolean` | `true` | Автозаполнение формы |
 | **`autoSaveToLocal`** | `boolean` | `true` | Сохранение в localStorage |
 | **`debug`** | `boolean` | `false` | Режим отладки |
 | **`formKey`** | `string` | `'user_contact_data'` | Ключ для хранения данных |
@@ -343,6 +344,7 @@ const contactForm = new ContactFormLibrary({
             theme: 'light',
             validatePhone: true,
             validateEmail: true,
+            autoFillUser: true, //попытаться заполнить пользователя автоматически через апи битрикс
             extraData: {
                 source: 'main-website',
                 campaign: 'default'
